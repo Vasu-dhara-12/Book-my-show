@@ -1,5 +1,3 @@
-(with K8S Stage)
-
 pipeline {
     agent any
 
@@ -9,13 +7,14 @@ pipeline {
     }
 
     environment {
-        SCANNER_HOME = tool 'sonar-scanner'
-        DOCKER_IMAGE = 'lavetivenkatesh/bms:latest'
+        SCANNER_HOME    = tool 'sonar-scanner'
+        DOCKER_IMAGE    = 'lavetivenkatesh/bms:latest'
         EKS_CLUSTER_NAME = 'venky-eks'
-        AWS_REGION = 'us-east-1'
+        AWS_REGION      = 'us-east-1'
     }
 
     stages {
+
         stage('Clean Workspace') {
             steps {
                 cleanWs()
@@ -32,11 +31,11 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonar-server') {
-                    sh ''' 
-                    $SCANNER_HOME/bin/sonar-scanner \
-                        -Dsonar.projectName=BMS \
-                        -Dsonar.projectKey=BMS
-                    '''
+                    sh """
+                    ${SCANNER_HOME}/bin/sonar-scanner \
+                    -Dsonar.projectName=BMS \
+                    -Dsonar.projectKey=BMS
+                    """
                 }
             }
         }
@@ -44,30 +43,28 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'Sonar-token'
+                    waitForQualityGate abortPipeline: false
                 }
             }
         }
 
         stage('Install Dependencies') {
             steps {
-                sh '''
-                cd bookmyshow-app
-                ls -la
-                if [ -f package.json ]; then
+                dir('bookmyshow-app') {
+                    sh '''
+                    ls -la
                     rm -rf node_modules package-lock.json
                     npm install
-                else
-                    echo "Error: package.json not found in bookmyshow-app!"
-                    exit 1
-                fi
-                '''
+                    '''
+                }
             }
         }
 
         stage('OWASP FS Scan') {
             steps {
-                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit',
+                odcInstallation: 'DP-Check'
+
                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
         }
@@ -82,10 +79,10 @@ pipeline {
             steps {
                 script {
                     withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
-                        sh ''' 
-                        docker build --no-cache -t $DOCKER_IMAGE -f bookmyshow-app/Dockerfile bookmyshow-app
-                        docker push $DOCKER_IMAGE
-                        '''
+                        sh """
+                        docker build --no-cache -t ${DOCKER_IMAGE} -f bookmyshow-app/Dockerfile bookmyshow-app
+                        docker push ${DOCKER_IMAGE}
+                        """
                     }
                 }
             }
@@ -93,18 +90,26 @@ pipeline {
 
         stage('Deploy to EKS Cluster') {
             steps {
-                script {
-                    sh '''
-                    aws sts get-caller-identity
-                    aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
-                    kubectl config view
-                    kubectl apply -f deployment.yml
-                    kubectl apply -f service.yml
-                    kubectl get pods
-                    kubectl get svc
-                    '''
-                }
+                sh """
+                aws sts get-caller-identity
+                aws eks update-kubeconfig --name ${EKS_CLUSTER_NAME} --region ${AWS_REGION}
+                kubectl config view
+                kubectl apply -f deployment.yml
+                kubectl apply -f service.yml
+                kubectl get pods
+                kubectl get svc
+                """
             }
+        }
+    }
+
+    post {
+        success {
+            echo 'Pipeline executed successfully'
+        }
+
+        failure {
+            echo 'Pipeline failed'
         }
     }
 }
