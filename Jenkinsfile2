@@ -7,9 +7,9 @@ pipeline {
     }
 
     environment {
-        SCANNER_HOME = tool 'sonar-scanner'
-        DOCKER_IMAGE = 'vasudhara12/bookmyshow:latest'
-        AWS_REGION = 'ap-south-1'
+        SCANNER_HOME    = tool 'sonar-scanner'
+        DOCKER_IMAGE    = 'vasudhara12/bookmyshow:latest'
+        AWS_REGION      = 'ap-south-1'
         EKS_CLUSTER_NAME = 'my-cluster'
     }
 
@@ -31,7 +31,7 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonarqube-server') {
-                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                    withCredentials([string(credentialsId: 'sonar-creds', variable: 'SONAR_TOKEN')]) {
                         sh '''
                         $SCANNER_HOME/bin/sonar-scanner \
                         -Dsonar.projectName=BMS \
@@ -108,6 +108,7 @@ pipeline {
         success {
             echo 'Pipeline Success'
         }
+
         failure {
             echo 'Pipeline Failed'
         }
