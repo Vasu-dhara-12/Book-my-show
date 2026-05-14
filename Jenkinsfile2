@@ -7,10 +7,10 @@ pipeline {
     }
 
     environment {
-        SCANNER_HOME   = tool 'sonar-scanner'
-        DOCKER_IMAGE   = 'vasudhara12/bookmyshow:latest'
+        SCANNER_HOME     = tool 'sonar-scanner'
+        DOCKER_IMAGE     = 'vasudhara12/bookmyshow:latest'
         EKS_CLUSTER_NAME = 'my-cluster'
-        AWS_REGION     = 'ap-south-1'
+        AWS_REGION       = 'ap-south-1'
     }
 
     stages {
@@ -41,13 +41,13 @@ pipeline {
             steps {
                 withSonarQubeEnv('sonarqube-server') {
                     withCredentials([string(credentialsId: 'sonar-creds', variable: 'SONAR_TOKEN')]) {
-                        sh """
+                        sh '''
                         $SCANNER_HOME/bin/sonar-scanner \
                         -Dsonar.projectName=BMS \
                         -Dsonar.projectKey=BMS \
                         -Dsonar.sources=. \
                         -Dsonar.token=$SONAR_TOKEN
-                        """
+                        '''
                     }
                 }
             }
@@ -88,10 +88,10 @@ pipeline {
             steps {
                 script {
                     withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
-                        sh """
+                        sh '''
                         docker build --no-cache -t $DOCKER_IMAGE -f bookmyshow-app/Dockerfile bookmyshow-app
                         docker push $DOCKER_IMAGE
-                        """
+                        '''
                     }
                 }
             }
@@ -99,7 +99,7 @@ pipeline {
 
         stage('Deploy to EKS Cluster') {
             steps {
-                sh """
+                sh '''
                 aws sts get-caller-identity
                 aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
 
@@ -108,7 +108,7 @@ pipeline {
 
                 kubectl get pods
                 kubectl get svc
-                """
+                '''
             }
         }
     }
