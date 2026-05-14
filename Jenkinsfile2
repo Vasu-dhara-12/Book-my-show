@@ -56,7 +56,7 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: false
+                    waitForQualityGate abortPipeline: false, credentialsId: 'sonar-creds'
                 }
             }
         }
@@ -65,7 +65,6 @@ pipeline {
             steps {
                 sh '''
                 cd bookmyshow-app
-                ls -la
 
                 if [ -f package.json ]; then
                     rm -rf node_modules package-lock.json
@@ -78,18 +77,33 @@ pipeline {
             }
         }
 
-        stage('Trivy FS Scan') {
+        stage('Trivy File Scan') {
             steps {
                 sh 'trivy fs . > trivyfs.txt'
             }
         }
 
-        stage('Docker Build & Push') {
+        stage('Docker Build Image') {
+            steps {
+                sh '''
+                docker build --no-cache -t $DOCKER_IMAGE -f bookmyshow-app/Dockerfile bookmyshow-app
+                '''
+            }
+        }
+
+        stage('Trivy Image Scan') {
+            steps {
+                sh '''
+                trivy image $DOCKER_IMAGE > trivyimage.txt
+                '''
+            }
+        }
+
+        stage('Push Docker Image') {
             steps {
                 script {
                     withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
                         sh '''
-                        docker build --no-cache -t $DOCKER_IMAGE -f bookmyshow-app/Dockerfile bookmyshow-app
                         docker push $DOCKER_IMAGE
                         '''
                     }
@@ -97,11 +111,14 @@ pipeline {
             }
         }
 
-        stage('Deploy to EKS Cluster') {
+        stage('Deploy to EKS') {
             steps {
                 sh '''
                 aws sts get-caller-identity
-                aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
+
+                aws eks update-kubeconfig \
+                --name $EKS_CLUSTER_NAME \
+                --region $AWS_REGION
 
                 kubectl apply -f deployment.yml
                 kubectl apply -f service.yml
@@ -115,15 +132,18 @@ pipeline {
 
     post {
         always {
-            emailext attachLog: true,
-                subject: "${currentBuild.result} - ${env.JOB_NAME}",
+            emailext(
+                attachLog: true,
+                subject: "${currentBuild.currentResult} - ${env.JOB_NAME}",
                 body: """
-                Project: ${env.JOB_NAME}<br/>
+                Project Name: ${env.JOB_NAME}<br/>
                 Build Number: ${env.BUILD_NUMBER}<br/>
-                URL: ${env.BUILD_URL}<br/>
+                Build URL: ${env.BUILD_URL}<br/>
+                Result: ${currentBuild.currentResult}
                 """,
                 to: 'kastrokiran@gmail.com',
                 attachmentsPattern: 'trivyfs.txt,trivyimage.txt'
+            )
         }
     }
 }
