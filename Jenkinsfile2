@@ -9,7 +9,7 @@ pipeline {
     environment {
         SCANNER_HOME = tool 'sonar-scanner'
         DOCKER_IMAGE = 'vasudhara12/bookmyshow:latest'
-        EKS_CLUSTER_NAME = 'kastro-eks'
+        EKS_CLUSTER_NAME = 'my-cluster'
         AWS_REGION = 'ap-south-1'
     }
 
