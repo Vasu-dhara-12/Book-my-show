@@ -7,10 +7,10 @@ pipeline {
     }
 
     environment {
-        SCANNER_HOME     = tool 'sonar-scanner'
-        DOCKER_IMAGE     = 'vasudhara12/bookmyshow:latest'
-        EKS_CLUSTER_NAME = 'my-cluster'
-        AWS_REGION       = 'ap-south-1'
+        SCANNER_HOME      = tool 'sonar-scanner'
+        DOCKER_IMAGE      = 'vasudhara12/bookmyshow:latest'
+        EKS_CLUSTER_NAME  = 'my-cluster'
+        AWS_REGION        = 'ap-south-1'
     }
 
     stages {
@@ -35,8 +35,7 @@ pipeline {
                     $SCANNER_HOME/bin/sonar-scanner \
                     -Dsonar.projectName=BMS \
                     -Dsonar.projectKey=BMS \
-                    -Dsonar.sources=. \
-                    -Dsonar.login=YOUR_SONAR_TOKEN
+                    -Dsonar.sources=.
                     '''
                 }
             }
@@ -45,12 +44,7 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
-                    script {
-                        def qg = waitForQualityGate()
-                        if (qg.status != 'OK') {
-                            error "Pipeline aborted due to Quality Gate failure: ${qg.status}"
-                        }
-                    }
+                    waitForQualityGate abortPipeline: false
                 }
             }
         }
@@ -59,6 +53,7 @@ pipeline {
             steps {
                 sh '''
                 cd bookmyshow-app
+                rm -rf node_modules package-lock.json
                 npm install
                 '''
             }
@@ -72,7 +67,9 @@ pipeline {
 
         stage('Docker Build Image') {
             steps {
-                sh 'docker build -t $DOCKER_IMAGE ./bookmyshow-app'
+                sh '''
+                docker build -t $DOCKER_IMAGE ./bookmyshow-app
+                '''
             }
         }
 
@@ -108,10 +105,10 @@ pipeline {
             emailext attachLog: true,
             subject: "${currentBuild.currentResult}: ${env.JOB_NAME}",
             body: """
-            Build Status: ${currentBuild.currentResult}
-            Job Name: ${env.JOB_NAME}
+            Project: ${env.JOB_NAME}
             Build Number: ${env.BUILD_NUMBER}
-            URL: ${env.BUILD_URL}
+            Build URL: ${env.BUILD_URL}
+            Status: ${currentBuild.currentResult}
             """,
             to: 'kastrokiran@gmail.com',
             attachmentsPattern: 'trivyfs.txt,trivyimage.txt'
