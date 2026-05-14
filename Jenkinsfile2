@@ -21,34 +21,23 @@ pipeline {
             }
         }
 
-        stage('Checkout from Git') {
+        stage('Checkout Code') {
             steps {
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: '*/main']],
-                    extensions: [],
-                    userRemoteConfigs: [[
-                        credentialsId: 'github_creds',
-                        url: 'https://github.com/Vasu-dhara-12/Book-My-Show.git'
-                    ]]
-                ])
-
-                sh 'ls -la'
+                git branch: 'main',
+                url: 'https://github.com/Vasu-dhara-12/Book-My-Show.git'
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonarqube-server') {
-                    withCredentials([string(credentialsId: 'sonar-creds', variable: 'SONAR_TOKEN')]) {
-                        sh '''
-                        $SCANNER_HOME/bin/sonar-scanner \
-                        -Dsonar.projectName=BMS \
-                        -Dsonar.projectKey=BMS \
-                        -Dsonar.sources=. \
-                        -Dsonar.token=$SONAR_TOKEN
-                        '''
-                    }
+                    sh '''
+                    $SCANNER_HOME/bin/sonar-scanner \
+                    -Dsonar.projectName=BMS \
+                    -Dsonar.projectKey=BMS \
+                    -Dsonar.sources=. \
+                    -Dsonar.login=YOUR_SONAR_TOKEN
+                    '''
                 }
             }
         }
@@ -56,7 +45,12 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'sonar-creds'
+                    script {
+                        def qg = waitForQualityGate()
+                        if (qg.status != 'OK') {
+                            error "Pipeline aborted due to Quality Gate failure: ${qg.status}"
+                        }
+                    }
                 }
             }
         }
@@ -65,14 +59,7 @@ pipeline {
             steps {
                 sh '''
                 cd bookmyshow-app
-
-                if [ -f package.json ]; then
-                    rm -rf node_modules package-lock.json
-                    npm install
-                else
-                    echo "package.json not found!"
-                    exit 1
-                fi
+                npm install
                 '''
             }
         }
@@ -85,28 +72,20 @@ pipeline {
 
         stage('Docker Build Image') {
             steps {
-                sh '''
-                docker build --no-cache -t $DOCKER_IMAGE -f bookmyshow-app/Dockerfile bookmyshow-app
-                '''
+                sh 'docker build -t $DOCKER_IMAGE ./bookmyshow-app'
             }
         }
 
         stage('Trivy Image Scan') {
             steps {
-                sh '''
-                trivy image $DOCKER_IMAGE > trivyimage.txt
-                '''
+                sh 'trivy image $DOCKER_IMAGE > trivyimage.txt'
             }
         }
 
         stage('Push Docker Image') {
             steps {
-                script {
-                    withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
-                        sh '''
-                        docker push $DOCKER_IMAGE
-                        '''
-                    }
+                withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
+                    sh 'docker push $DOCKER_IMAGE'
                 }
             }
         }
@@ -114,15 +93,9 @@ pipeline {
         stage('Deploy to EKS') {
             steps {
                 sh '''
-                aws sts get-caller-identity
-
-                aws eks update-kubeconfig \
-                --name $EKS_CLUSTER_NAME \
-                --region $AWS_REGION
-
+                aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
                 kubectl apply -f deployment.yml
                 kubectl apply -f service.yml
-
                 kubectl get pods
                 kubectl get svc
                 '''
@@ -132,18 +105,16 @@ pipeline {
 
     post {
         always {
-            emailext(
-                attachLog: true,
-                subject: "${currentBuild.currentResult} - ${env.JOB_NAME}",
-                body: """
-                Project Name: ${env.JOB_NAME}<br/>
-                Build Number: ${env.BUILD_NUMBER}<br/>
-                Build URL: ${env.BUILD_URL}<br/>
-                Result: ${currentBuild.currentResult}
-                """,
-                to: 'kastrokiran@gmail.com',
-                attachmentsPattern: 'trivyfs.txt,trivyimage.txt'
-            )
+            emailext attachLog: true,
+            subject: "${currentBuild.currentResult}: ${env.JOB_NAME}",
+            body: """
+            Build Status: ${currentBuild.currentResult}
+            Job Name: ${env.JOB_NAME}
+            Build Number: ${env.BUILD_NUMBER}
+            URL: ${env.BUILD_URL}
+            """,
+            to: 'kastrokiran@gmail.com',
+            attachmentsPattern: 'trivyfs.txt,trivyimage.txt'
         }
     }
 }
