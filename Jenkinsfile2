@@ -7,10 +7,10 @@ pipeline {
     }
 
     environment {
-        SCANNER_HOME      = tool 'sonar-scanner'
-        DOCKER_IMAGE      = 'vasudhara12/bookmyshow:latest'
-        EKS_CLUSTER_NAME  = 'my-cluster'
-        AWS_REGION        = 'ap-south-1'
+        SCANNER_HOME = tool 'sonar-scanner'
+        DOCKER_IMAGE = 'vasudhara12/bookmyshow:latest'
+        AWS_REGION = 'ap-south-1'
+        EKS_CLUSTER_NAME = 'my-cluster'
     }
 
     stages {
@@ -24,19 +24,22 @@ pipeline {
         stage('Checkout Code') {
             steps {
                 git branch: 'main',
-                url: 'https://github.com/Vasu-dhara-12/Book-My-Show.git'
+                url: 'https://github.com/Vasu-dhara-12/Book-my-show.git'
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonarqube-server') {
-                    sh '''
-                    $SCANNER_HOME/bin/sonar-scanner \
-                    -Dsonar.projectName=BMS \
-                    -Dsonar.projectKey=BMS \
-                    -Dsonar.sources=.
-                    '''
+                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                        sh '''
+                        $SCANNER_HOME/bin/sonar-scanner \
+                        -Dsonar.projectName=BMS \
+                        -Dsonar.projectKey=BMS \
+                        -Dsonar.sources=. \
+                        -Dsonar.token=$SONAR_TOKEN
+                        '''
+                    }
                 }
             }
         }
@@ -51,38 +54,41 @@ pipeline {
 
         stage('Install Dependencies') {
             steps {
-                sh '''
-                cd bookmyshow-app
-                rm -rf node_modules package-lock.json
-                npm install
-                '''
+                dir('bookmyshow-app') {
+                    sh 'npm install'
+                }
             }
         }
 
         stage('Trivy File Scan') {
             steps {
-                sh 'trivy fs . > trivyfs.txt'
+                sh 'trivy fs .'
             }
         }
 
         stage('Docker Build Image') {
             steps {
-                sh '''
-                docker build -t $DOCKER_IMAGE ./bookmyshow-app
-                '''
+                sh 'docker build -t $DOCKER_IMAGE .'
             }
         }
 
         stage('Trivy Image Scan') {
             steps {
-                sh 'trivy image $DOCKER_IMAGE > trivyimage.txt'
+                sh 'trivy image $DOCKER_IMAGE'
             }
         }
 
         stage('Push Docker Image') {
             steps {
-                withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
-                    sh 'docker push $DOCKER_IMAGE'
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh '''
+                    echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                    docker push $DOCKER_IMAGE
+                    '''
                 }
             }
         }
@@ -93,25 +99,17 @@ pipeline {
                 aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
                 kubectl apply -f deployment.yml
                 kubectl apply -f service.yml
-                kubectl get pods
-                kubectl get svc
                 '''
             }
         }
     }
 
     post {
-        always {
-            emailext attachLog: true,
-            subject: "${currentBuild.currentResult}: ${env.JOB_NAME}",
-            body: """
-            Project: ${env.JOB_NAME}
-            Build Number: ${env.BUILD_NUMBER}
-            Build URL: ${env.BUILD_URL}
-            Status: ${currentBuild.currentResult}
-            """,
-            to: 'kastrokiran@gmail.com',
-            attachmentsPattern: 'trivyfs.txt,trivyimage.txt'
+        success {
+            echo 'Pipeline Success'
+        }
+        failure {
+            echo 'Pipeline Failed'
         }
     }
 }
